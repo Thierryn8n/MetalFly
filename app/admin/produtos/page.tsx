@@ -1,13 +1,10 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useCRUD, useNotification } from "@/app/admin/components/hooks"
-import { DataTable } from "@/app/admin/components/tables/data-table"
-import { Button } from "@/app/admin/components/forms/button"
-import { Form } from "@/app/admin/components/forms/form"
-import { Input } from "@/app/admin/components/forms/input"
-import { Select } from "@/app/admin/components/forms/select"
-import { Textarea } from "@/app/admin/components/forms/textarea"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Textarea } from "@/components/ui/textarea"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/app/admin/components/modals/dialog"
 
 interface Produto {
@@ -38,62 +35,36 @@ interface Loja {
 }
 
 export default function ProdutosPage() {
-  const { showNotification } = useNotification()
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingProduto, setEditingProduto] = useState<Produto | null>(null)
   const [lojas, setLojas] = useState<Loja[]>([])
+  const [produtos, setProdutos] = useState<Produto[]>([])
+  const [loading, setLoading] = useState(true)
+  const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
 
-  const {
-    data: produtos,
-    loading,
-    refetch,
-    create,
-    update,
-    delete: deleteProduto
-  } = useCRUD<Produto>({
-    fetchAll: async () => {
+  // Função para mostrar notificações
+  const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
+    setNotification({ message, type })
+    setTimeout(() => setNotification(null), 3000)
+  }
+
+  // Carregar produtos
+  const loadProdutos = async () => {
+    try {
+      setLoading(true)
       const response = await fetch("/api/admin/produtos")
       if (!response.ok) throw new Error("Erro ao buscar produtos")
       const data = await response.json()
-      return data.produtos || []
-    },
-    create: async (data: Partial<Produto>) => {
-      const response = await fetch("/api/admin/produtos", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data)
-      })
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || "Erro ao criar produto")
-      }
-      const result = await response.json()
-      return result.produto
-    },
-    update: async (id: string, data: Partial<Produto>) => {
-      const response = await fetch(`/api/admin/produtos/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data)
-      })
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || "Erro ao atualizar produto")
-      }
-      const result = await response.json()
-      return result.produto
-    },
-    delete: async (id: string) => {
-      const response = await fetch(`/api/admin/produtos/${id}`, {
-        method: "DELETE"
-      })
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || "Erro ao deletar produto")
-      }
+      setProdutos(data.produtos || [])
+    } catch (error) {
+      console.error("Erro ao carregar produtos:", error)
+      showNotification("Erro ao carregar produtos", "error")
+    } finally {
+      setLoading(false)
     }
-  })
+  }
 
+  // Carregar lojas
   const loadLojas = async () => {
     try {
       const response = await fetch("/api/admin/lojas")
@@ -107,6 +78,7 @@ export default function ProdutosPage() {
   }
 
   useEffect(() => {
+    loadProdutos()
     loadLojas()
   }, [])
 
@@ -123,117 +95,66 @@ export default function ProdutosPage() {
   const handleDelete = async (produto: Produto) => {
     if (confirm(`Tem certeza que deseja deletar o produto "${produto.nome}"?`)) {
       try {
-        await deleteProduto(produto.id)
+        const response = await fetch(`/api/admin/produtos/${produto.id}`, {
+          method: "DELETE"
+        })
+        if (!response.ok) throw new Error("Erro ao deletar produto")
         showNotification("Produto deletado com sucesso", "success")
-        refetch()
+        loadProdutos()
       } catch (error) {
         showNotification(error instanceof Error ? error.message : "Erro ao deletar produto", "error")
       }
     }
   }
 
-  const handleSubmit = async (data: any) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    const formData = new FormData(e.currentTarget)
+    
     try {
-      // Converter valores numéricos
-      const processedData = {
-        ...data,
-        preco: parseFloat(data.preco) || 0,
-        preco_promocional: data.preco_promocional ? parseFloat(data.preco_promocional) : null,
-        estoque: parseInt(data.estoque) || 0
+      const data = {
+        nome: formData.get('nome') as string,
+        sku: formData.get('sku') as string,
+        preco: parseFloat(formData.get('preco') as string) || 0,
+        preco_promocional: formData.get('preco_promocional') ? parseFloat(formData.get('preco_promocional') as string) : null,
+        estoque: parseInt(formData.get('estoque') as string) || 0,
+        loja_id: formData.get('loja_id') as string,
+        categoria: formData.get('categoria') as string,
+        descricao: formData.get('descricao') as string,
+        status: formData.get('status') as string
       }
 
-      if (editingProduto) {
-        await update(editingProduto.id, processedData)
-        showNotification("Produto atualizado com sucesso", "success")
-      } else {
-        await create(processedData)
-        showNotification("Produto criado com sucesso", "success")
+      const method = editingProduto ? 'PUT' : 'POST'
+      const url = editingProduto ? `/api/admin/produtos/${editingProduto.id}` : '/api/admin/produtos'
+      
+      const response = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data)
+      })
+      
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || "Erro ao salvar produto")
       }
+      
+      showNotification(editingProduto ? "Produto atualizado com sucesso" : "Produto criado com sucesso", "success")
       setIsDialogOpen(false)
-      refetch()
+      loadProdutos()
     } catch (error) {
       showNotification(error instanceof Error ? error.message : "Erro ao salvar produto", "error")
     }
   }
 
-  const columns = [
-    {
-      key: "nome",
-      label: "Nome",
-      sortable: true
-    },
-    {
-      key: "sku",
-      label: "SKU",
-      sortable: true
-    },
-    {
-      key: "lojas.name",
-      label: "Loja",
-      render: (value: any, item: Produto) => item.lojas?.name || "-"
-    },
-    {
-      key: "preco",
-      label: "Preço",
-      sortable: true,
-      render: (value: number) => `R$ ${value.toFixed(2)}`
-    },
-    {
-      key: "estoque",
-      label: "Estoque",
-      sortable: true,
-      render: (value: number) => (
-        <span className={value < 10 ? "text-red-600" : value < 20 ? "text-yellow-600" : "text-green-600"}>
-          {value}
-        </span>
-      )
-    },
-    {
-      key: "status",
-      label: "Status",
-      render: (value: string) => (
-        <span className={`inline-flex px-2 py-1 text-xs rounded-full ${
-          value === "active" ? "bg-green-100 text-green-800" :
-          value === "inactive" ? "bg-yellow-100 text-yellow-800" :
-          "bg-red-100 text-red-800"
-        }`}>
-          {value === "active" ? "Ativo" : value === "inactive" ? "Inativo" : "Deletado"}
-        </span>
-      )
-    },
-    {
-      key: "created_at",
-      label: "Criado em",
-      sortable: true,
-      render: (value: string) => new Date(value).toLocaleDateString("pt-BR")
-    },
-    {
-      key: "actions",
-      label: "Ações",
-      render: (value: any, item: Produto) => (
-        <div className="flex space-x-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => handleEdit(item)}
-          >
-            Editar
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => handleDelete(item)}
-            className="text-red-600 hover:text-red-700"
-          >
-            Deletar
-          </Button>
-        </div>
-      )
-    }
-  ]
-
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 p-6">
+      {/* Notificação */}
+      {notification && (
+        <div className={`p-4 rounded-md ${notification.type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+          {notification.message}
+        </div>
+      )}
+
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Gestão de Produtos</h1>
@@ -246,14 +167,96 @@ export default function ProdutosPage() {
         </Button>
       </div>
 
-      <DataTable
-        data={produtos}
-        columns={columns}
-        loading={loading}
-        searchPlaceholder="Buscar produtos..."
-        onRefresh={refetch}
-      />
+      {/* Tabela de Produtos */}
+      <div className="bg-white rounded-lg shadow">
+        <div className="p-4 border-b">
+          <Input 
+            placeholder="Buscar produtos..." 
+            className="max-w-sm"
+            onChange={(e) => {
+              // Implementar busca se necessário
+              console.log("Buscando:", e.target.value)
+            }}
+          />
+        </div>
+        
+        {loading ? (
+          <div className="p-8 text-center">Carregando produtos...</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nome</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">SKU</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loja</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Preço</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estoque</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ações</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {produtos.map((produto) => (
+                  <tr key={produto.id}>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {produto.nome}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {produto.sku}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {produto.lojas?.name || "-"}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      R$ {produto.preco.toFixed(2)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      <span className={produto.estoque < 10 ? "text-red-600" : produto.estoque < 20 ? "text-yellow-600" : "text-green-600"}>
+                        {produto.estoque}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      <span className={`inline-flex px-2 py-1 text-xs rounded-full ${
+                        produto.status === "active" ? "bg-green-100 text-green-800" :
+                        produto.status === "inactive" ? "bg-yellow-100 text-yellow-800" :
+                        "bg-red-100 text-red-800"
+                      }`}>
+                        {produto.status === "active" ? "Ativo" : produto.status === "inactive" ? "Inativo" : "Deletado"}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleEdit(produto)}
+                      >
+                        Editar
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleDelete(produto)}
+                        className="text-red-600 hover:text-red-700"
+                      >
+                        Deletar
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            
+            {produtos.length === 0 && (
+              <div className="p-8 text-center text-gray-500">
+                Nenhum produto encontrado
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
+      {/* Dialog de Criação/Edição */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="max-w-4xl">
           <DialogHeader>
@@ -262,91 +265,133 @@ export default function ProdutosPage() {
             </DialogTitle>
           </DialogHeader>
           
-          <Form
-            onSubmit={handleSubmit}
-            initialData={editingProduto || {}}
-            className="space-y-4"
-          >
+          <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
-              <Input
-                name="nome"
-                label="Nome do Produto"
-                required
-                placeholder="Nome do produto"
-              />
+              <div>
+                <label htmlFor="nome" className="block text-sm font-medium text-gray-700 mb-1">
+                  Nome do Produto *
+                </label>
+                <Input
+                  name="nome"
+                  required
+                  placeholder="Nome do produto"
+                  defaultValue={editingProduto?.nome || ""}
+                />
+              </div>
               
-              <Input
-                name="sku"
-                label="SKU"
-                required
-                placeholder="Código único do produto"
-              />
+              <div>
+                <label htmlFor="sku" className="block text-sm font-medium text-gray-700 mb-1">
+                  SKU *
+                </label>
+                <Input
+                  name="sku"
+                  required
+                  placeholder="Código único do produto"
+                  defaultValue={editingProduto?.sku || ""}
+                />
+              </div>
             </div>
             
             <div className="grid grid-cols-3 gap-4">
-              <Input
-                name="preco"
-                label="Preço (R$)"
-                type="number"
-                step="0.01"
-                required
-                placeholder="0.00"
-              />
+              <div>
+                <label htmlFor="preco" className="block text-sm font-medium text-gray-700 mb-1">
+                  Preço (R$) *
+                </label>
+                <Input
+                  name="preco"
+                  type="number"
+                  step="0.01"
+                  required
+                  placeholder="0.00"
+                  defaultValue={editingProduto?.preco || ""}
+                />
+              </div>
               
-              <Input
-                name="preco_promocional"
-                label="Preço Promocional (R$)"
-                type="number"
-                step="0.01"
-                placeholder="0.00"
-                helpText="Deixe vazio se não houver promoção"
-              />
+              <div>
+                <label htmlFor="preco_promocional" className="block text-sm font-medium text-gray-700 mb-1">
+                  Preço Promocional (R$)
+                </label>
+                <Input
+                  name="preco_promocional"
+                  type="number"
+                  step="0.01"
+                  placeholder="0.00"
+                  defaultValue={editingProduto?.preco_promocional || ""}
+                />
+                <p className="text-xs text-gray-500 mt-1">Deixe vazio se não houver promoção</p>
+              </div>
               
-              <Input
-                name="estoque"
-                label="Estoque"
-                type="number"
-                required
-                placeholder="0"
-              />
+              <div>
+                <label htmlFor="estoque" className="block text-sm font-medium text-gray-700 mb-1">
+                  Estoque *
+                </label>
+                <Input
+                  name="estoque"
+                  type="number"
+                  required
+                  placeholder="0"
+                  defaultValue={editingProduto?.estoque || ""}
+                />
+              </div>
             </div>
             
             <div className="grid grid-cols-2 gap-4">
-              <Select
-                name="loja_id"
-                label="Loja"
-                required
-              >
-                <option value="">Selecione uma loja</option>
-                {lojas.map(loja => (
-                  <option key={loja.id} value={loja.id}>
-                    {loja.name}
-                  </option>
-                ))}
-              </Select>
+              <div>
+                <label htmlFor="loja_id" className="block text-sm font-medium text-gray-700 mb-1">
+                  Loja *
+                </label>
+                <Select name="loja_id" required defaultValue={editingProduto?.loja_id || ""}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione uma loja" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {lojas.map(loja => (
+                      <SelectItem key={loja.id} value={loja.id}>
+                        {loja.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               
-              <Input
-                name="categoria"
-                label="Categoria"
-                placeholder="Categoria do produto"
+              <div>
+                <label htmlFor="categoria" className="block text-sm font-medium text-gray-700 mb-1">
+                  Categoria
+                </label>
+                <Input
+                  name="categoria"
+                  placeholder="Categoria do produto"
+                  defaultValue={editingProduto?.categoria || ""}
+                />
+              </div>
+            </div>
+            
+            <div>
+              <label htmlFor="descricao" className="block text-sm font-medium text-gray-700 mb-1">
+                Descrição
+              </label>
+              <Textarea
+                name="descricao"
+                placeholder="Descrição detalhada do produto"
+                rows={4}
+                defaultValue={editingProduto?.descricao || ""}
               />
             </div>
             
-            <Textarea
-              name="descricao"
-              label="Descrição"
-              placeholder="Descrição detalhada do produto"
-              rows={4}
-            />
-            
-            <Select
-              name="status"
-              label="Status"
-              required
-            >
-              <option value="active">Ativo</option>
-              <option value="inactive">Inativo</option>
-            </Select>
+            <div>
+              <label htmlFor="status" className="block text-sm font-medium text-gray-700 mb-1">
+                Status *
+              </label>
+              <Select name="status" required defaultValue={editingProduto?.status || "active"}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">Ativo</SelectItem>
+                  <SelectItem value="inactive">Inativo</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             
             <div className="flex justify-end space-x-2 pt-4">
               <Button
@@ -360,7 +405,7 @@ export default function ProdutosPage() {
                 {editingProduto ? "Atualizar" : "Criar"}
               </Button>
             </div>
-          </Form>
+          </form>
         </DialogContent>
       </Dialog>
     </div>
