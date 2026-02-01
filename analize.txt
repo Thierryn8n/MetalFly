@@ -1,0 +1,169 @@
+The errors you're seeing are a combination of frontend code issues, Supabase client configuration problems, and likely database data inconsistencies (based on the SQL schemas you provided and the logs). I'll break it down step-by-step, explain the root causes, and provide fixes. I analyzed all the SQL documents you attached (e.g., table creations, RLS policies, seeds, and refinements) and cross-referenced them with the frontend code snippets (e.g., the calculator page.tsx, GateCalculator component references, and auth-related pages).
+
+### 1. **Main Issues Identified**
+   - **406 Not Acceptable Error on Supabase Fetch**:
+     - This happens when querying `pricing_configs` with `.single()` (which sets the HTTP Accept header to `application/vnd.pgrst.object+json` to expect exactly one row as an object).
+     - PostgREST (Supabase's REST API) returns 406 if the query returns **multiple rows** (it can't serialize multiple rows into a single object) or if there's a mismatch in expected response format.
+     - Your SQL in "001-create-tables.sql" has `UNIQUE(user_id)`, which *should* prevent multiples, but:
+       - If the table was created/recreated without the unique constraint initially (e.g., during development), duplicates could exist.
+       - If sign-up failed midway and was retried (see signup page.tsx, which inserts into `pricing_configs`), it could create extras without triggering the unique constraint error properly.
+       - RLS policies in "002-enable-rls.sql" allow users to insert their own configs, but don't prevent duplicates if the unique constraint isn't enforced strictly.
+     - Logs show the query: `.../pricing_configs?select=*&user_id=eq.16ae8890-3b3c-4fa7-883d-13e504209e6e` – this user likely has >1 row.
+
+   - **"Erro ao buscar configuração de preços: Object"**:
+     - This is the JS error from the Supabase client catching the 406. The code in calculator page.tsx handles it by falling back to defaults, but it logs the error object.
+
+   - **Multiple GoTrueClient Instances Warning**:
+     - Caused by creating multiple Supabase clients in the browser (e.g., `createBrowserClient()` in auth pages and `createBrowserClientAlternative()` in calculator page.tsx).
+     - This can lead to inconsistent auth sessions or storage conflicts (using the same localStorage key).
+
+   - **ReferenceError: handleCreateOrder is not defined** (in gate-calculator.tsx:335):
+     - The GateCalculator component (not fully provided in your docs, but referenced) has a call to `handleCreateOrder` (likely on a button for saving/creating an order), but the function isn't defined in the component's scope.
+     - This crashes the component render, preventing the page from loading fully.
+
+   - **Page Not Functioning Overall**:
+     - The calculator page loads but fails due to the above (fetch error + crash in component).
+     - No issues in SQL schemas themselves – they look solid (tables, RLS, indexes, seeds). The problem is data/runtime.
+
+### 2. **Step-by-Step Fixes**
+#### **A. Fix Database Issues (Duplicates in pricing_configs)**
+   Since the 406 is from multiples, clean up the data. Use Supabase Dashboard or run SQL directly (e.g., via pgAdmin or Supabase SQL editor).
+
+   1. **Check for Duplicates**:
+      Run this SQL to inspect (replace with your user_id from logs):
+      ```
+      SELECT * FROM pricing_configs WHERE user_id = '16ae8890-3b3c-4fa7-883d-13e504209e6e';
+      ```
+      - If >1 row, that's the issue.
+
+   2. **Delete Duplicates**:
+      Keep the most recent (or preferred) one. Example SQL:
+      ```
+      -- Delete all but the latest for the user
+      DELETE FROM pricing_configs
+      WHERE user_id = '16ae8890-3b3c-4fa7-883d-13e504209e6e'
+      AND id NOT IN (
+        SELECT id FROM pricing_configs
+        WHERE user_id = '16ae8890-3b3c-4fa7-883d-13e504209e6e'
+        ORDER BY updated_at DESC
+        LIMIT 1
+      );
+      ```
+      - This keeps the newest row (based on `updated_at` from your schema).
+
+   3. **Prevent Future Duplicates**:
+      - Your schema already has `UNIQUE(user_id)` – ensure it's applied (run "001-create-tables.sql" again if needed).
+      - In signup page.tsx, change `.insert()` to `.upsert()` to update if exists:
+        ```tsx
+        await supabase.from("pricing_configs").upsert({
+          user_id: data.user.id,
+          material_margin: 30,
+          labor_hourly_rate: 80,
+          profit_margin: 25,
+        });
+        ```
+      - Add a trigger to enforce (optional, but robust). Add this to your SQL (e.g., append to "001-create-tables.sql"):
+        ```
+        CREATE OR REPLACE FUNCTION prevent_duplicate_pricing()
+        RETURNS TRIGGER AS $$
+        BEGIN
+          IF EXISTS (SELECT 1 FROM pricing_configs WHERE user_id = NEW.user_id) THEN
+            RAISE EXCEPTION 'Pricing config already exists for this user';
+          END IF;
+          RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql;
+
+        DROP TRIGGER IF EXISTS trig_prevent_duplicate_pricing ON pricing_configs;
+        CREATE TRIGGER trig_prevent_duplicate_pricing
+        BEFORE INSERT ON pricing_configs
+        FOR EACH ROW EXECUTE PROCEDURE prevent_duplicate_pricing();
+        ```
+
+   4. **Verify RLS**:
+      - Policies in "002-enable-rls.sql" are correct (user can only access their own).
+      - Test: Log in as the user and run the query in Supabase Dashboard.
+
+#### **B. Fix Frontend Code (calculator page.tsx and Related)**
+   1. **Switch to Standard Supabase Client**:
+      - Avoid `createBrowserClientAlternative()` – it might not handle auth properly (logs show multiple instances).
+      - Change import in calculator page.tsx:
+        ```tsx
+        import { createBrowserClient } from "@/lib/supabase/client";  // Use the standard one (as in your auth pages)
+        ```
+      - In your lib/supabase/client.ts (assuming you have it), ensure it's singleton:
+        ```ts
+        import { createClient } from '@supabase/supabase-js';
+
+        let supabaseClient: ReturnType<typeof createClient> | null = null;
+
+        export const createBrowserClient = () => {
+          if (!supabaseClient) {
+            supabaseClient = createClient(
+              process.env.NEXT_PUBLIC_SUPABASE_URL!,
+              process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+            );
+          }
+          return supabaseClient;
+        };
+        ```
+      - This prevents multiple GoTrueClient instances.
+
+   2. **Handle Fetch Errors Better**:
+      - Update the fetch in useEffect to use `.maybeSingle()` (handles 0 rows without error):
+        ```tsx
+        const { data, error } = await supabase
+          .from("pricing_configs")
+          .select("*")
+          .eq("user_id", profile.id)
+          .maybeSingle();
+
+        if (error || !data) {
+          console.error("Erro ao buscar configuração de preços:", error);
+          setError("Erro ao carregar configurações de preço. Usando valores padrão.");
+          // Default config...
+        } else {
+          setPricingConfig(data as PricingConfig);
+        }
+        ```
+      - If multiples still happen (unlikely after cleanup), it'll error – but now you can handle it (e.g., alert user).
+
+   3. **Fix ReferenceError in GateCalculator**:
+      - In "@/components/calculator/gate-calculator.tsx" (line ~335), there's likely a button like `<Button onClick={handleCreateOrder}>Save</Button>`.
+      - Define the missing function. Add this to the GateCalculator component:
+        ```tsx
+        const handleCreateOrder = async () => {
+          // Implement order creation logic here
+          try {
+            const orderData = { /* Gather form data: width, height, etc. from state */ };
+            const { data, error } = await supabase.from("orders").insert(orderData);
+            if (error) throw error;
+            // Success: Redirect or show toast
+            router.push("/dashboard/orders");
+          } catch (error) {
+            console.error("Error creating order:", error);
+            // Show error UI
+          }
+        };
+        ```
+      - Ensure it aligns with your `orders` table schema (from "001-create-tables.sql" and "008-refine-orders-schema.sql").
+      - If this is for creating an order, tie it to form state (e.g., use React Hook Form or state vars for width, height, etc.).
+
+#### **C. Test and Deploy**
+   1. **Local Test**:
+      - Run SQL fixes in Supabase.
+      - Update code, then `npm run dev`.
+      - Log in, go to /dashboard/calculator.
+      - Check console: No 406, no ReferenceError.
+      - If no config, it should use defaults (as in your code).
+
+   2. **Edge Cases**:
+      - New user: Sign-up inserts default config (fixed with upsert).
+      - No config: Falls back to defaults (already in code).
+      - RLS: Test with another user – they shouldn't see this user's config.
+
+   3. **Deploy**:
+      - Push to Vercel/Netlify.
+      - Monitor Supabase logs for PostgREST errors.
+
+If this doesn't fix it, share the full gate-calculator.tsx code or Supabase project URL for deeper debugging. The SQL schemas are fine – no changes needed there.

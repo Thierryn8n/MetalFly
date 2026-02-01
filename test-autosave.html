@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste de Salvamento Automático</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #555;
+            font-weight: bold;
+        }
+        input, textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+        .status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 5px;
+            text-align: center;
+            font-weight: bold;
+        }
+        .status.saved {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.saving {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        .clear-btn {
+            background-color: #dc3545;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        .clear-btn:hover {
+            background-color: #c82333;
+        }
+        .debug-info {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Teste de Salvamento Automático</h1>
+        <p>Este teste simula o salvamento automático do popup de orçamento. Digite nos campos abaixo e veja os dados sendo salvos automaticamente no localStorage.</p>
+        
+        <div class="form-group">
+            <label for="clientName">Nome do Cliente:</label>
+            <input type="text" id="clientName" placeholder="Digite o nome do cliente">
+        </div>
+        
+        <div class="form-group">
+            <label for="clientPhone">Telefone:</label>
+            <input type="text" id="clientPhone" placeholder="(00) 00000-0000">
+        </div>
+        
+        <div class="form-group">
+            <label for="notes">Observações:</label>
+            <textarea id="notes" placeholder="Observações adicionais..."></textarea>
+        </div>
+        
+        <div id="status" class="status" style="display: none;"></div>
+        
+        <button class="clear-btn" onclick="clearStorage()">Limpar Dados Salvos</button>
+        
+        <div class="debug-info">
+            <strong>Debug Info:</strong>
+            <div id="debugInfo">Aguardando interação...</div>
+        </div>
+    </div>
+
+    <script>
+        // Simulação do debounce
+        function debounce(func, delay) {
+            let timeoutId;
+            return function(...args) {
+                clearTimeout(timeoutId);
+                timeoutId = setTimeout(() => func.apply(this, args), delay);
+            };
+        }
+
+        // Função para mostrar status
+        function showStatus(message, type) {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = message;
+            statusEl.className = `status ${type}`;
+            statusEl.style.display = 'block';
+            
+            if (type === 'saving') {
+                setTimeout(() => {
+                    statusEl.style.display = 'none';
+                }, 2000);
+            }
+        }
+
+        // Função para atualizar debug info
+        function updateDebugInfo() {
+            const debugEl = document.getElementById('debugInfo');
+            const savedData = localStorage.getItem('budget_client_data');
+            
+            if (savedData) {
+                const data = JSON.parse(savedData);
+                debugEl.innerHTML = `
+                    <strong>Dados Salvos:</strong><br>
+                    Nome: ${data.clientName || 'vazio'}<br>
+                    Telefone: ${data.clientPhone || 'vazio'}<br>
+                    Observações: ${data.notes || 'vazio'}<br>
+                    Timestamp: ${data.timestamp || 'sem timestamp'}
+                `;
+            } else {
+                debugEl.innerHTML = 'Nenhum dado salvo no localStorage';
+            }
+        }
+
+        // Função de salvamento automático
+        const autoSave = debounce(() => {
+            showStatus('💾 Salvando dados...', 'saving');
+            
+            const data = {
+                clientName: document.getElementById('clientName').value,
+                clientPhone: document.getElementById('clientPhone').value,
+                notes: document.getElementById('notes').value,
+                timestamp: new Date().toISOString()
+            };
+            
+            try {
+                localStorage.setItem('budget_client_data', JSON.stringify(data));
+                showStatus('✅ Dados salvos com sucesso!', 'saved');
+                updateDebugInfo();
+                console.log('Dados salvos no localStorage:', data);
+            } catch (error) {
+                showStatus('❌ Erro ao salvar dados', 'error');
+                console.error('Erro ao salvar:', error);
+            }
+        }, 500); // 500ms de delay
+
+        // Adicionar listeners para mudanças nos campos
+        document.getElementById('clientName').addEventListener('input', autoSave);
+        document.getElementById('clientPhone').addEventListener('input', autoSave);
+        document.getElementById('notes').addEventListener('input', autoSave);
+
+        // Função para limpar o localStorage
+        function clearStorage() {
+            localStorage.removeItem('budget_client_data');
+            showStatus('🗑️ Dados limpos com sucesso!', 'saved');
+            updateDebugInfo();
+            
+            // Limpar campos também
+            document.getElementById('clientName').value = '';
+            document.getElementById('clientPhone').value = '';
+            document.getElementById('notes').value = '';
+        }
+
+        // Carregar dados salvos ao iniciar
+        window.addEventListener('load', () => {
+            const savedData = localStorage.getItem('budget_client_data');
+            if (savedData) {
+                try {
+                    const data = JSON.parse(savedData);
+                    document.getElementById('clientName').value = data.clientName || '';
+                    document.getElementById('clientPhone').value = data.clientPhone || '';
+                    document.getElementById('notes').value = data.notes || '';
+                    showStatus('📁 Dados carregados do salvamento automático', 'saved');
+                    updateDebugInfo();
+                } catch (error) {
+                    console.error('Erro ao carregar dados:', error);
+                }
+            }
+        });
+
+        // Atualizar debug info periodicamente
+        setInterval(updateDebugInfo, 2000);
+    </script>
+</body>
+</html>

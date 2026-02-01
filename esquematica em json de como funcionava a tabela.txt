@@ -1,0 +1,104 @@
+{
+  "sheets": [
+    {
+      "name": "Vendas e Pedidos",
+      "description": "Esta aba é a tela principal para registrar vendas e pedidos. Registre aqui os detalhes dos serviços que entram.",
+      "columns": [
+        {
+          "header": "Data",
+          "description": "Data em que o pedido foi feito. Formato sugerido: DD/MM/AAAA."
+        },
+        {
+          "header": "Cliente",
+          "description": "Nome e telefone do cliente."
+        },
+        {
+          "header": "Medidas",
+          "description": "Largura e Altura das portas (em metros)."
+        },
+        {
+          "header": "Área Total (m²)",
+          "description": "Cálculo automático da área. Fórmula exemplo: =Largura * Altura (ex: se Largura em B2 e Altura em C2, use =B2*C2)."
+        },
+        {
+          "header": "Valor Total",
+          "description": "Preço final acordado com o cliente."
+        },
+        {
+          "header": "Sinal/Entrada",
+          "description": "Valor pago inicialmente pelo cliente."
+        },
+        {
+          "header": "Status",
+          "description": "Estado do pedido: Pendente, Em Produção, Pronto para Instalar, Finalizado."
+        }
+      ],
+      "tips": [
+        "Use formatação condicional para colorir a coluna Status: Verde para 'Finalizado', Vermelho para 'Pendente'.",
+        "Ative filtros na primeira linha para buscar por cliente ou data."
+      ]
+    },
+    {
+      "name": "Calculadora de Orçamentos",
+      "description": "Aba para calcular orçamentos com base em medidas e custos. Insira valores e obtenha o preço aproximado para evitar erros.",
+      "inputs": [
+        {
+          "header": "Custo da Lâmina (Meia Cana)",
+          "description": "Valor por m² da lâmina."
+        },
+        {
+          "header": "Custo do Motor",
+          "description": "Valor fixo baseado no peso ou potência."
+        },
+        {
+          "header": "Custo de Ferragens",
+          "description": "Custo de eixo, guias, soleira, etc."
+        },
+        {
+          "header": "Mão de Obra",
+          "description": "Custo da equipe mais margem de lucro."
+        }
+      ],
+      "formulas": [
+        {
+          "name": "Valor Final",
+          "description": "Cálculo total do orçamento.",
+          "formula": "=(Área * CustoM2) + Motor + Ferragens + Margem",
+          "example": "Se Área em A2, CustoM2 em B2, etc., ajuste as referências de células conforme sua configuração."
+        }
+      ],
+      "tips": [
+        "Insira as medidas na aba de Vendas e referencie aqui para automação.",
+        "Atualize os custos fixos periodicamente para refletir preços de fornecedores."
+      ]
+    },
+    {
+      "name": "Estoque de Materiais",
+      "description": "Controle de estoque no galpão. Monitore itens para evitar faltas.",
+      "columns": [
+        {
+          "header": "Item",
+          "description": "Nome do material, ex: Lâmina galvanizada, Motor 200kg, Motor 500kg, Controle Remoto."
+        },
+        {
+          "header": "Quantidade Mínima",
+          "description": "Nível mínimo para alerta de recompra."
+        },
+        {
+          "header": "Quantidade Atual",
+          "description": "Quantidade disponível atualmente."
+        }
+      ],
+      "tips": [
+        "Use formatação condicional: Vermelho se Quantidade Atual < Quantidade Mínima.",
+        "Atualize após cada uso ou compra."
+      ]
+    }
+  ],
+  "generalTips": [
+    "Acesse via app do Google Planilhas no celular para verificações em campo.",
+    "Para fórmulas exatas de portas automáticas: Valor = (Área m² * Preço por m²) + Custo do Kit Motor. Ajuste com base em seus custos reais.",
+    "Comece criando um novo arquivo no Google Planilhas e adicione as abas manualmente, copiando as colunas sugeridas."
+  ],
+  "howItWorks": "Essa estrutura organiza seus dados para evitar confusão. A aba de Vendas rastreia pedidos do início ao fim. A Calculadora usa fórmulas para precificar com precisão, somando custos variáveis (como área) e fixos (como motor). O Estoque avisa quando repor itens. Tudo integrado no Google Planilhas para acesso fácil e atualizações em tempo real."
+}
